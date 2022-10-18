@@ -1,0 +1,7 @@
+weights
+checkpoints
+outputs
+inputs
+core/__pycache__
+deep_sort/__pycache__
+tools/__pycache__/
