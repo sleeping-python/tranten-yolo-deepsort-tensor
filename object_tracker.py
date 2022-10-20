@@ -30,6 +30,7 @@ flags.DEFINE_integer('size', 416, 'resize images to')
 flags.DEFINE_boolean('tiny', False, 'yolo or yolo-tiny')
 flags.DEFINE_string('model', 'yolov4', 'yolov3 or yolov4')
 flags.DEFINE_string('video', './input/video/test.mp4', 'path to input video or set to 0 for webcam')
+flags.DEFINE_string('output_metrics', './output/metrics/out.txt', 'path to the output metrics file')
 flags.DEFINE_string('output', None, 'path to output video')
 flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
 flags.DEFINE_float('iou', 0.45, 'iou threshold')
@@ -39,10 +40,17 @@ flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
 
 def main(_argv):
+    logging.info("rmv : Object tracker started")
+    logging.info("input : {}, output: {}, output_metrics : {}".format(FLAGS.video, FLAGS.output, FLAGS.output_metrics))
     # Definition of the parameters
+
+    f = open(FLAGS.output_metrics, "w")
+
     max_cosine_distance = 0.4
     nn_budget = None
     nms_max_overlap = 1.0
+
+    start_time = time.time()
     
     # initialize deep sort
     model_filename = 'model_data/mars-small128.pb'
@@ -73,6 +81,8 @@ def main(_argv):
         saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
         infer = saved_model_loaded.signatures['serving_default']
 
+    print("Load model time taken {}".format(time.time() - start_time))
+
     # begin video capture
     try:
         vid = cv2.VideoCapture(int(video_path))
@@ -91,6 +101,18 @@ def main(_argv):
         out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
 
     frame_num = 0
+    logging.info("Input video prop h: {} , w: {}, fps: {}".format(width, height, fps))
+    
+    # read in all class names from config
+    class_names = utils.read_class_names(cfg.YOLO.CLASSES)
+
+    # by default allow all classes in .names file
+    allowed_classes = list(class_names.values())
+    
+    track_dict = {}
+    for i in allowed_classes:
+        track_dict[i] = set()
+
     # while video is running
     while True:
         return_value, frame = vid.read()
@@ -153,11 +175,7 @@ def main(_argv):
         # store all predictions in one parameter for simplicity when calling functions
         pred_bbox = [bboxes, scores, classes, num_objects]
 
-        # read in all class names from config
-        class_names = utils.read_class_names(cfg.YOLO.CLASSES)
 
-        # by default allow all classes in .names file
-        allowed_classes = list(class_names.values())
         
         # custom allowed classes (uncomment line below to customize tracker for only people)
         #allowed_classes = ['person']
@@ -183,6 +201,7 @@ def main(_argv):
 
         # encode yolo detections and feed to tracker
         features = encoder(frame, bboxes)
+
         detections = [Detection(bbox, score, class_name, feature) for bbox, score, class_name, feature in zip(bboxes, scores, names, features)]
 
         #initialize color map
@@ -200,23 +219,26 @@ def main(_argv):
         tracker.predict()
         tracker.update(detections)
 
+
+        
         # update tracks
         for track in tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue 
             bbox = track.to_tlbr()
             class_name = track.get_class()
-            
-        # draw bbox on screen
+
+            # draw bbox on screen
+            # logging.info("Track", track)
             color = colors[int(track.track_id) % len(colors)]
             color = [i * 255 for i in color]
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
             cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
-        # if enable info flag then print details about each track
-            # if FLAGS.info:
             print("Tracker ID: {}, Class: {}".format(str(track.track_id), class_name))
+            track_dict[class_name].add(track.track_id)
+
 
         # calculate frames per second of running detections
         fps = 1.0 / (time.time() - start_time)
@@ -231,6 +253,14 @@ def main(_argv):
         if FLAGS.output:
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'): break
+
+    for i in allowed_classes:
+        if track_dict[i]:
+            print("{} : {}".format(i, len(track_dict[i])))
+            f.write("{} : {}\n".format(i, len(track_dict[i])))
+
+    f.write("End of metrics")
+    f.close()
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':

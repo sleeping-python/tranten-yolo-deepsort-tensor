@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 import cv2
 import tensorflow.compat.v1 as tf
+from absl import logging
 
 #tf.compat.v1.disable_eager_execution()
 
@@ -82,6 +83,7 @@ class ImageEncoder(object):
             graph_def = tf.GraphDef()
             graph_def.ParseFromString(file_handle.read())
         tf.import_graph_def(graph_def, name="net")
+
         self.input_var = tf.get_default_graph().get_tensor_by_name(
             "%s:0" % input_name)
         self.output_var = tf.get_default_graph().get_tensor_by_name(
