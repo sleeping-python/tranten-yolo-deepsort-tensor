@@ -148,6 +148,7 @@ def main(_argv):
             for key, value in pred_bbox.items():
                 boxes = value[:, :, 0:4]
                 pred_conf = value[:, :, 4:]
+        print("boxes.shape: {}, pred_conf: {}".format(boxes.shape, pred_conf.shape))
 
         boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
             boxes=tf.reshape(boxes, (tf.shape(boxes)[0], -1, 1, 4)),
