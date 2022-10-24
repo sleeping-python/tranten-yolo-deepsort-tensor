@@ -78,8 +78,10 @@ def main(_argv):
         print(output_details)
     # otherwise load standard tensorflow saved model
     else:
-        saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
-        infer = saved_model_loaded.signatures['serving_default']
+        # saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
+        saved_model_loaded = tf.keras.models.load_model(FLAGS.weights)
+        saved_model_loaded.summary()
+        # infer = saved_model_loaded.signatures['serving_default']
 
     print("Load model time taken {}".format(time.time() - start_time))
 
@@ -144,10 +146,14 @@ def main(_argv):
                                                 input_shape=tf.constant([input_size, input_size]))
         else:
             batch_data = tf.constant(image_data)
-            pred_bbox = infer(batch_data)
-            for key, value in pred_bbox.items():
-                boxes = value[:, :, 0:4]
-                pred_conf = value[:, :, 4:]
+            try:
+                pred_bbox = saved_model_loaded.predict(batch_data)
+                print("Predicted bbox : {}".format(pred_bbox))
+            except:
+                print("Error in predecting.")
+
+            boxes = pred_bbox[:, :, 0:4]
+            pred_conf = pred_bbox[:, :, 4:]
         print("boxes.shape: {}, pred_conf: {}".format(boxes.shape, pred_conf.shape))
 
         boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
