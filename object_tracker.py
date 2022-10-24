@@ -80,7 +80,6 @@ def main(_argv):
     else:
         # saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
         saved_model_loaded = tf.keras.models.load_model(FLAGS.weights)
-        saved_model_loaded.summary()
         # infer = saved_model_loaded.signatures['serving_default']
 
     print("Load model time taken {}".format(time.time() - start_time))
@@ -125,6 +124,10 @@ def main(_argv):
             print('Video has ended or failed, try a different video format!')
             break
         frame_num +=1
+
+        if frame_num % 10 != 0 :
+            continue
+
         print('Frame #: ', frame_num)
         frame_size = frame.shape[:2]
         image_data = cv2.resize(frame, (input_size, input_size))
