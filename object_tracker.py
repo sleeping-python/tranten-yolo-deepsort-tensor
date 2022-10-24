@@ -148,7 +148,6 @@ def main(_argv):
             batch_data = tf.constant(image_data)
             try:
                 pred_bbox = saved_model_loaded.predict(batch_data)
-                print("Predicted bbox : {}".format(pred_bbox))
             except:
                 print("Error in predecting.")
 
