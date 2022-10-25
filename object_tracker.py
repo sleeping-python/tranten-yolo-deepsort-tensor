@@ -125,7 +125,7 @@ def main(_argv):
             break
         frame_num +=1
 
-        if frame_num % 10 != 0 :
+        if frame_num % 3 != 0 :
             continue
 
         print('Frame #: ', frame_num)
