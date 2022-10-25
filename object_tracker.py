@@ -23,7 +23,7 @@ from deep_sort import preprocessing, nn_matching
 from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
-flags.DEFINE_string('framework', 'tf', '(tf, tflite, trt')
+# flags.DEFINE_string('framework', 'tf', '(tf, tflite, trt')
 flags.DEFINE_string('weights', './checkpoints/yolov4-416',
                     'path to weights file')
 flags.DEFINE_integer('size', 416, 'resize images to')
@@ -38,6 +38,29 @@ flags.DEFINE_float('score', 0.50, 'score threshold')
 flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
+
+def get_n_frames(vid_stream, input_size, n):
+    frames = []
+    image_datum = []
+    eos = False
+    for i in range(n):
+        return_value, frame = vid_stream.read()
+        frames.append(frame)
+        if return_value:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame)
+        else:
+            print('Video has ended or failed, try a different video format!')
+            eos=True
+            break
+
+        frame_size = frame.shape[:2]
+        image_data = cv2.resize(frame, (input_size, input_size))
+        image_data = image_data / 255.
+        image_data = image_data[np.newaxis, ...].astype(np.float32)
+        image_datum.append(image_data)
+
+    return frames, image_datum, eos
 
 def main(_argv):
     logging.info("rmv : Object tracker started")
@@ -68,22 +91,12 @@ def main(_argv):
     input_size = FLAGS.size
     video_path = FLAGS.video
 
-    # load tflite model if flag is set
-    if FLAGS.framework == 'tflite':
-        interpreter = tf.lite.Interpreter(model_path=FLAGS.weights)
-        interpreter.allocate_tensors()
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-        print(input_details)
-        print(output_details)
-    # otherwise load standard tensorflow saved model
-    else:
-        # saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
-        saved_model_loaded = tf.keras.models.load_model(FLAGS.weights)
-        # infer = saved_model_loaded.signatures['serving_default']
 
+    # saved_model_loaded = tf.saved_model.load(FLAGS.weights, tags=[tag_constants.SERVING])
+    # infer = saved_model_loaded.signatures['serving_default']
+    saved_model_loaded = tf.keras.models.load_model(FLAGS.weights)
     print("Load model time taken {}".format(time.time() - start_time))
-
+ 
     # begin video capture
     try:
         vid = cv2.VideoCapture(int(video_path))
@@ -115,47 +128,26 @@ def main(_argv):
         track_dict[i] = set()
 
     # while video is running
-    while True:
-        return_value, frame = vid.read()
-        if return_value:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(frame)
-        else:
-            print('Video has ended or failed, try a different video format!')
-            break
-        frame_num +=1
+    eos = False
 
-        if frame_num % 3 != 0 :
-            continue
+    while not eos:
+        frames, image_datum, eos = get_n_frames(vid, input_size, 3)
+        frame = frames[0]
+        image_data = image_datum[0]
+        
+        frame_num +=3
 
         print('Frame #: ', frame_num)
-        frame_size = frame.shape[:2]
-        image_data = cv2.resize(frame, (input_size, input_size))
-        image_data = image_data / 255.
-        image_data = image_data[np.newaxis, ...].astype(np.float32)
         start_time = time.time()
 
-        # run detections on tflite if flag is set
-        if FLAGS.framework == 'tflite':
-            interpreter.set_tensor(input_details[0]['index'], image_data)
-            interpreter.invoke()
-            pred = [interpreter.get_tensor(output_details[i]['index']) for i in range(len(output_details))]
-            # run detections using yolov3 if flag is set
-            if FLAGS.model == 'yolov3' and FLAGS.tiny == True:
-                boxes, pred_conf = filter_boxes(pred[1], pred[0], score_threshold=0.25,
-                                                input_shape=tf.constant([input_size, input_size]))
-            else:
-                boxes, pred_conf = filter_boxes(pred[0], pred[1], score_threshold=0.25,
-                                                input_shape=tf.constant([input_size, input_size]))
-        else:
-            batch_data = tf.constant(image_data)
-            try:
-                pred_bbox = saved_model_loaded.predict(batch_data)
-            except:
-                print("Error in predecting.")
+        batch_data = tf.constant(image_data)
+        try:
+            pred_bbox = saved_model_loaded.predict(batch_data)
+        except:
+            print("Error in predecting.")
 
-            boxes = pred_bbox[:, :, 0:4]
-            pred_conf = pred_bbox[:, :, 4:]
+        boxes = pred_bbox[:, :, 0:4]
+        pred_conf = pred_bbox[:, :, 4:]
         print("boxes.shape: {}, pred_conf: {}".format(boxes.shape, pred_conf.shape))
 
         boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
