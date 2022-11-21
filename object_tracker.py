@@ -41,7 +41,7 @@ flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
 
 def get_n_frames(vid_stream, input_size, n):
     frames = []
-    image_datum = []
+    batch_datum = []
     eos = False
     for i in range(n):
         return_value, frame = vid_stream.read()
@@ -58,9 +58,11 @@ def get_n_frames(vid_stream, input_size, n):
         image_data = cv2.resize(frame, (input_size, input_size))
         image_data = image_data / 255.
         image_data = image_data[np.newaxis, ...].astype(np.float32)
-        image_datum.append(image_data)
+        batch_data = tf.constant(image_data)
+        batch_datum.append(batch_data)
+        
 
-    return frames, image_datum, eos
+    return frames, batch_datum, eos
 
 def main(_argv):
     logging.info("rmv : Object tracker started")
@@ -124,27 +126,32 @@ def main(_argv):
     allowed_classes = list(class_names.values())
     
     track_dict = {}
+    last_run_count = {}
     for i in allowed_classes:
         track_dict[i] = set()
+        last_run_count[i] = 0
 
     # while video is running
     eos = False
+    frame_jump = 3 #jump n frames so that processing can be fastened.
+    update_counter = 3*60 #Update the counter file every n minutes
 
     while not eos:
-        frames, image_datum, eos = get_n_frames(vid, input_size, 3)
+        frames, batch_datum, eos = get_n_frames(vid, input_size, frame_jump)
         frame = frames[0]
-        image_data = image_datum[0]
+        batch_data = batch_datum[0]
         
-        frame_num +=3
+        frame_num +=frame_jump
 
         print('Frame #: ', frame_num)
         start_time = time.time()
 
-        batch_data = tf.constant(image_data)
+
         try:
-            pred_bbox = saved_model_loaded.predict(batch_data)
-        except:
-            print("Error in predecting.")
+            pred_bbox = saved_model_loaded.predict(batch_datum)
+            print("pred_bbox shape : {}".format(pred_bbox.shape))
+        except Exception as e:
+            print("Error in predecting - ", e.__class__)
 
         boxes = pred_bbox[:, :, 0:4]
         pred_conf = pred_bbox[:, :, 4:]
@@ -255,11 +262,22 @@ def main(_argv):
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'): break
 
+        if (frame_num/fps)%(update_counter) == 0 :
+            f.write("Writing stats for {} sec".format(frame_num/fps))
+            for i in allowed_classes:
+                if track_dict[i]:
+                    print("{} : {}".format(i, len(track_dict[i])))
+                    f.write("{} : {}\n".format(i, len(track_dict[i]) - last_run_count[i]))
+                    last_run_count[i] = len(track_dict[i])
+            f.write("\n")
+
+    f.write("Writing final stats")
     for i in allowed_classes:
         if track_dict[i]:
             print("{} : {}".format(i, len(track_dict[i])))
             f.write("{} : {}\n".format(i, len(track_dict[i])))
 
+    f.write("\n")
     f.write("End of metrics")
     f.close()
     cv2.destroyAllWindows()
